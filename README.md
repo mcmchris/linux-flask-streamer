@@ -52,3 +52,19 @@ python3 streaming.py
 `http://<Portenta-IP>:4912/`
 
 - Enjoy
+
+## Tips
+
+- To avoid installing all dependencies and having to set up the environment every single time, create a docker image from the container for later use.
+
+How To:
+
+- Type `docker ps -a` to get your container name.
+- Type `docker commit <container name> <custom image name>` to save the Docker container and add a custom name for later identification.
+- Type `docker images -a` to look at the Docker images list. Find the image you created by name.
+- To run you saved Docker image again just type:
+```
+docker run -it --rm --privileged --network=host -v /dev/:/dev/ --env UDEV=1 --device /dev:/dev --entrypoint /bin/bash <image name>
+```
+
+
