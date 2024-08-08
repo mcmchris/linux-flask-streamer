@@ -40,7 +40,7 @@ def main(argv):
         raise Exception("Multiple cameras found. Add the camera port ID as a second argument to use to this script")
     videoCaptureDeviceId = int(port_ids[0])
 
-    camera = cv2.VideoCapture("/dev/video1")
+    camera = cv2.VideoCapture(videoCaptureDeviceId)
 
     face_detector = cv2.CascadeClassifier(cv2.data.haarcascades +
      "haarcascade_frontalface_default.xml")
@@ -50,7 +50,7 @@ def main(argv):
         backendName = camera.getBackendName()
         w = camera.get(3)
         h = camera.get(4)
-        print("Camera %s (%s x %s) in port %s selected." %(backendName,h,w, "/dev/video1"))
+        print("Camera %s (%s x %s) in port %s selected." %(backendName,h,w, videoCaptureDeviceId))
         #camera.release()
     else:
         raise Exception("Couldn't initialize selected camera.")
