@@ -42,7 +42,7 @@ def main(argv):
     else:
         videoCaptureDeviceId = int(port_ids[0])
 
-    videoCaptureDeviceId = int(args[1])
+    videoCaptureDeviceId = int(args[0])
 
     camera = cv2.VideoCapture(videoCaptureDeviceId)
 
