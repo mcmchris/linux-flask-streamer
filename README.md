@@ -1,5 +1,7 @@
 # Linux Flask Video Streamer
 
+Tested with Arduino Portenta X8 (dockers) and Generic Linux Machines (venv)
+
 ## Dependencies and Steps:
 
 - Install and run Ubuntu 22.04 Docker image:
