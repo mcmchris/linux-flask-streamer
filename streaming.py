@@ -35,8 +35,8 @@ def main(argv):
 
     port_ids = get_webcams()
 
-    print("Arguments number: %d", args)
-    
+    print("Arguments number: ", args)
+
     if len(port_ids) == 0:
         raise Exception('Cannot find any webcams')
     if len(args)<= 1 and len(port_ids)> 1:
