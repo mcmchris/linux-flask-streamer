@@ -35,6 +35,8 @@ def main(argv):
 
     port_ids = get_webcams()
 
+    print("Arguments number: %d", args)
+    
     if len(port_ids) == 0:
         raise Exception('Cannot find any webcams')
     if len(args)<= 1 and len(port_ids)> 1:
@@ -45,6 +47,7 @@ def main(argv):
     videoCaptureDeviceId = int(args[0])
 
     print("Port of camera: %s", videoCaptureDeviceId)
+
     camera = cv2.VideoCapture(videoCaptureDeviceId)
 
     face_detector = cv2.CascadeClassifier(cv2.data.haarcascades +
