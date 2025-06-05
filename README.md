@@ -18,7 +18,7 @@ apt-get install -y git
 - Clone repository:
 
 ```
-git clone https://github.com/mcmchris/portenta-x8-flask-streamer.git
+git clone https://github.com/mcmchris/linux-flask-streamer.git
 cd portenta-x8-flask-streaming
 ```
 - Install pip to install other packages:
