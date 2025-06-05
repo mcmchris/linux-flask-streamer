@@ -39,14 +39,14 @@ def main(argv):
 
     if len(port_ids) == 0:
         raise Exception('Cannot find any webcams')
-    if len(args)<= 1 and len(port_ids)> 1:
+    if len(args) == 0 and len(port_ids)> 1:
         raise Exception("Multiple cameras found. Add the camera port ID as a second argument to use to this script")
     else:
         videoCaptureDeviceId = int(port_ids[0])
 
     videoCaptureDeviceId = int(args[0])
 
-    print("Port of camera: %s", videoCaptureDeviceId)
+    print("Port of camera:", videoCaptureDeviceId)
 
     camera = cv2.VideoCapture(videoCaptureDeviceId)
 
