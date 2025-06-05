@@ -1,4 +1,4 @@
-# Portenta X8 Flask Video Streamer
+# Linux Flask Video Streamer
 
 ## Dependencies and Steps:
 
