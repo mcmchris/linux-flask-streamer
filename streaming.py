@@ -44,6 +44,7 @@ def main(argv):
 
     videoCaptureDeviceId = int(args[0])
 
+    print("Port of camera: %s", videoCaptureDeviceId)
     camera = cv2.VideoCapture(videoCaptureDeviceId)
 
     face_detector = cv2.CascadeClassifier(cv2.data.haarcascades +
