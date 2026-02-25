@@ -29,20 +29,12 @@ def generate_frames():
 
     print("Cámara MIPI inicializada correctamente.")
 
-    face_detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
     while True:
         ret, img = camera.read()
         if not ret:
             print("Error leyendo el frame de la cámara")
             time.sleep(0.1)
             continue
-
-        # Procesamiento: Detección de rostros
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = face_detector.detectMultiScale(gray, 1.3, 5)
-        for (x, y, w, h) in faces:
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
         # Codificar a JPEG para enviarlo por HTTP
         ret, buffer = cv2.imencode('.jpg', img)
