@@ -35,6 +35,14 @@ def adjust_saturation(image, scale=1.3):
     # Regresamos a BGR
     return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
+# 2. EL TOQUE FINAL EFICIENTE EN OPENCV
+# Un ajuste rápido de Gamma para mejorar los medios tonos sin quemar las luces.
+def adjust_gamma(image, gamma=1.2):
+    invGamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** invGamma) * 255
+                      for i in np.arange(0, 256)]).astype("uint8")
+    return cv2.LUT(image, table)
+
 def generate_frames():
     pipeline = get_gstreamer_pipeline()
     print("Iniciando cámara con pipeline:", pipeline)
@@ -56,9 +64,12 @@ def generate_frames():
             time.sleep(0.01)
             continue
             
+
+        img = adjust_gamma(img, gamma=0.85)
+        
         # --- PROCESAMIENTO DE IMAGEN ---
         # Aplicamos nuestro ajuste rápido de saturación
-        #img = adjust_saturation(img, scale=1.4)
+        # img = adjust_saturation(img, scale=1.4)
         
         # Opcional: Un pequeño ajuste de contraste extra (Lookup Table) muy rápido
         # img = cv2.convertScaleAbs(img, alpha=1.1, beta=5)
