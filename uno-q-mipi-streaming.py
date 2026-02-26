@@ -53,7 +53,7 @@ def generate_frames():
             
         # --- CORRECCIÓN DE COLOR (White Balance) ---
         # r_gain alto revive el color de la piel. g_gain < 1 mata el tinte verde.
-        img = fast_white_balance(img, r_gain=1.7, g_gain=0.85, b_gain=1.2)
+        img = fast_white_balance(img, r_gain=1.7, g_gain=0.02, b_gain=1.2)
         # -------------------------------------------
 
         # Cálculo de FPS
