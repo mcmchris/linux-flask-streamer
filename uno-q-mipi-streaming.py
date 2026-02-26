@@ -58,7 +58,7 @@ def generate_frames():
             
         # --- PROCESAMIENTO DE IMAGEN ---
         # Aplicamos nuestro ajuste rápido de saturación
-        img = adjust_saturation(img, scale=1.4)
+        #img = adjust_saturation(img, scale=1.4)
         
         # Opcional: Un pequeño ajuste de contraste extra (Lookup Table) muy rápido
         # img = cv2.convertScaleAbs(img, alpha=1.1, beta=5)
