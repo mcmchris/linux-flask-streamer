@@ -61,7 +61,7 @@ def generate_frames():
         #img = adjust_saturation(img, scale=1.4)
         
         # Opcional: Un pequeño ajuste de contraste extra (Lookup Table) muy rápido
-        # img = cv2.convertScaleAbs(img, alpha=1.1, beta=5)
+        img = cv2.convertScaleAbs(img, alpha=1.1, beta=5)
         # -------------------------------
 
         # Cálculo de FPS
