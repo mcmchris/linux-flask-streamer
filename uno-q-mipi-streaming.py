@@ -18,6 +18,7 @@ def get_gstreamer_pipeline(width=1280, height=720, framerate=30):
         # contrast: Elevado para quitar lo "lavado".
         # brightness: Ajuste sutil de luz.
         # "videobalance contrast=1.4 hue=-0.15 brightness=0.08 saturation=1.2 ! "
+        "videobalance contrast=1.65 brightness=-0.1 hue=0.1 saturation=1.3 ! "
         "videoconvert ! "
         "video/x-raw, format=BGR ! "
         "appsink drop=true max-buffers=1"
@@ -66,7 +67,7 @@ def generate_frames():
             
 
         img = adjust_gamma(img, gamma=0.85)
-        
+
         # --- PROCESAMIENTO DE IMAGEN ---
         # Aplicamos nuestro ajuste rápido de saturación
         # img = adjust_saturation(img, scale=1.4)
