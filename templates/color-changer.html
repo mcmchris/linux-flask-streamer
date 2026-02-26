@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIPI Camera Calibration Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #2b2b2b;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 40px;
+        }
+        .video-container {
+            text-align: center;
+        }
+        .video-container img {
+            border: 3px solid #444;
+            border-radius: 8px;
+            max-width: 100%;
+        }
+        .controls-container {
+            background-color: #363636;
+            padding: 20px;
+            border-radius: 8px;
+            width: 350px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .slider-group {
+            margin-bottom: 20px;
+        }
+        .slider-group label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        input[type=range] {
+            width: 100%;
+        }
+        .note {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="video-container">
+        <h2>Live Tuning Stream</h2>
+        <img src="{{ url_for('video_feed') }}">
+    </div>
+
+    <div class="controls-container">
+        <h3>Color Settings</h3>
+        
+        <div class="slider-group">
+            <label>Red Gain <span id="r_val">1.00</span></label>
+            <input type="range" id="r_gain" min="0.5" max="3.0" step="0.05" value="1.0" oninput="updateSettings()">
+        </div>
+
+        <div class="slider-group">
+            <label>Green Gain <span id="g_val">0.85</span></label>
+            <input type="range" id="g_gain" min="0.5" max="3.0" step="0.05" value="0.85" oninput="updateSettings()">
+        </div>
+
+        <div class="slider-group">
+            <label>Blue Gain <span id="b_val">1.20</span></label>
+            <input type="range" id="b_gain" min="0.5" max="3.0" step="0.05" value="1.2" oninput="updateSettings()">
+        </div>
+
+        <hr style="border-color: #555; margin: 20px 0;">
+
+        <div class="slider-group">
+            <label>Contrast (Alpha) <span id="c_val">1.20</span></label>
+            <input type="range" id="contrast" min="0.5" max="3.0" step="0.1" value="1.2" oninput="updateSettings()">
+        </div>
+
+        <div class="slider-group">
+            <label>Brightness (Beta) <span id="br_val">5</span></label>
+            <input type="range" id="brightness" min="-100" max="100" step="1" value="5" oninput="updateSettings()">
+        </div>
+        
+        <div class="note">
+            * Note these values down once you are happy with the image. You can later hardcode them to save CPU!
+        </div>
+    </div>
+
+    <script>
+        function updateSettings() {
+            // Obtener valores actuales de los sliders
+            const r_gain = document.getElementById('r_gain').value;
+            const g_gain = document.getElementById('g_gain').value;
+            const b_gain = document.getElementById('b_gain').value;
+            const contrast = document.getElementById('contrast').value;
+            const brightness = document.getElementById('brightness').value;
+
+            // Actualizar el texto en pantalla
+            document.getElementById('r_val').innerText = parseFloat(r_gain).toFixed(2);
+            document.getElementById('g_val').innerText = parseFloat(g_gain).toFixed(2);
+            document.getElementById('b_val').innerText = parseFloat(b_gain).toFixed(2);
+            document.getElementById('c_val').innerText = parseFloat(contrast).toFixed(2);
+            document.getElementById('br_val').innerText = brightness;
+
+            // Enviar a Flask mediante Fetch API
+            fetch('/update_settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    r_gain: r_gain,
+                    g_gain: g_gain,
+                    b_gain: b_gain,
+                    contrast: contrast,
+                    brightness: brightness
+                })
+            });
+        }
+    </script>
+</body>
+</html>
