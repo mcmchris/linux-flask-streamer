@@ -12,12 +12,6 @@ def get_gstreamer_pipeline(width=640, height=480, framerate=30):
     return (
         "libcamerasrc ! "
         "videoconvert ! "
-        # --- AQUÍ ESTÁ LA MAGIA ---
-        # contrast: > 1.0 aumenta el contraste (quita lo "lavado")
-        # saturation: > 1.0 hace los colores más vivos
-        # brightness: Ajuste fino de luz (-1.0 a 1.0, 0 es default)
-        "videobalance contrast=1.3 saturation=1.6 brightness=0.05 ! "
-        # ---------------------------
         "videoscale ! "
         f"video/x-raw, width={width}, height={height}, format=BGR ! "
         "appsink drop=true max-buffers=1"
