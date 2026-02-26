@@ -17,32 +17,10 @@ def get_gstreamer_pipeline(width=1280, height=720, framerate=30):
         # hue: Lo movemos ligeramente a negativo para contrarrestar el verde y darle un tono más cálido a tu piel.
         # contrast: Elevado para quitar lo "lavado".
         # brightness: Ajuste sutil de luz.
-        # "videobalance contrast=1.4 hue=-0.15 brightness=0.08 saturation=1.2 ! "
-        "videobalance contrast=1.65 brightness=-0.1 hue=0.1 saturation=1.3 ! "
         "videoconvert ! "
         "video/x-raw, format=BGR ! "
         "appsink drop=true max-buffers=1"
     )
-
-# 2. EL TOQUE FINAL EFICIENTE EN OPENCV
-# Un ajuste rápido de saturación similar al tuyo, pero vectorizado para que no cause lag.
-def adjust_saturation(image, scale=1.3):
-    # Convertimos a HSV
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
-    # Escalamos solo el canal de saturación (índice 1)
-    hsv[:, :, 1] *= scale
-    # Evitamos que se pase del límite máximo (255 para 8-bits)
-    hsv[:, :, 1] = np.clip(hsv[:, :, 1], 0, 255)
-    # Regresamos a BGR
-    return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
-# 2. EL TOQUE FINAL EFICIENTE EN OPENCV
-# Un ajuste rápido de Gamma para mejorar los medios tonos sin quemar las luces.
-def adjust_gamma(image, gamma=1.2):
-    invGamma = 1.0 / gamma
-    table = np.array([((i / 255.0) ** invGamma) * 255
-                      for i in np.arange(0, 256)]).astype("uint8")
-    return cv2.LUT(image, table)
 
 def generate_frames():
     pipeline = get_gstreamer_pipeline()
@@ -65,17 +43,6 @@ def generate_frames():
             time.sleep(0.01)
             continue
             
-
-        img = adjust_gamma(img, gamma=0.85)
-
-        # --- PROCESAMIENTO DE IMAGEN ---
-        # Aplicamos nuestro ajuste rápido de saturación
-        # img = adjust_saturation(img, scale=1.4)
-        
-        # Opcional: Un pequeño ajuste de contraste extra (Lookup Table) muy rápido
-        # img = cv2.convertScaleAbs(img, alpha=1.1, beta=5)
-        # -------------------------------
-
         # Cálculo de FPS
         frame_count += 1
         curr_time = time.time()
