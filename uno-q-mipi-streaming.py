@@ -8,12 +8,17 @@ app = Flask(__name__, static_folder='templates/assets')
 
 # Definimos el pipeline de GStreamer para conectarlo a OpenCV
 # Reducimos la resolución a 640x480 para que la detección de rostros no mate el CPU
-def get_gstreamer_pipeline(width=3280, height=2464, framerate=30):
+def get_gstreamer_pipeline(width=1280, height=720, framerate=30):
     return (
         "libcamerasrc ! "
+        # 1. Obligamos al ISP por hardware a darnos 720p a 30fps desde la raíz
+        f"video/x-raw, width={width}, height={height}, framerate={framerate}/1 ! "
+        # 2. Arreglamos los colores "lavados"
+        "videobalance contrast=1.3 saturation=1.6 brightness=0.05 ! "
+        # 3. Convertimos al formato que lee OpenCV
         "videoconvert ! "
-        "videoscale ! "
-        f"video/x-raw, width={width}, height={height}, format=BGR ! "
+        "video/x-raw, format=BGR ! "
+        # 4. Soltamos los frames viejos para evitar acumular retraso (latencia)
         "appsink drop=true max-buffers=1"
     )
 
