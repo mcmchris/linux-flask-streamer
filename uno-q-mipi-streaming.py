@@ -9,12 +9,13 @@ app = Flask(__name__, static_folder='templates/assets')
 
 # 1. EL TRABAJO PESADO EN GSTREAMER
 # Corregimos el tinte verde (hue) y ajustamos la luz base sin usar CPU.
-def get_gstreamer_pipeline(width=1280, height=720, framerate=30):
+def get_gstreamer_pipeline(camera_name="0", width=1280, height=720, framerate=30):
     return (
-        "libcamerasrc ! "
+        # Agregamos camera-name a libcamerasrc
+        f"libcamerasrc camera-name={camera_name} ! "
         f"video/x-raw, width={width}, height={height}, framerate={framerate}/1 ! "
         # videobalance: 
-        # hue: Lo movemos ligeramente a negativo para contrarrestar el verde y darle un tono más cálido a tu piel.
+        # hue: Lo movemos ligeramente a negativo para contrarrestar el verde.
         # contrast: Elevado para quitar lo "lavado".
         # brightness: Ajuste sutil de luz.
         "videoconvert ! "
