@@ -9,18 +9,22 @@ app = Flask(__name__, static_folder='templates/assets')
 
 # 1. EL TRABAJO PESADO EN GSTREAMER
 # Corregimos el tinte verde (hue) y ajustamos la luz base sin usar CPU.
-def get_gstreamer_pipeline(camera_name="0", width=1280, height=720, framerate=30):
+def get_gstreamer_pipeline(width=1280, height=720, framerate=30):
+
+    camera_name = r"/base/soc\@0/cci\@5c1b000/i2c-bus\@0/sensor\@1a"
+    #camera_name = r"/base/soc\@0/cci\@5c1b000/i2c-bus\@1/sensor\@10"
+
     return (
         # Agregamos camera-name a libcamerasrc
-        f"libcamerasrc camera-name={camera_name} ! "
-        f"video/x-raw, width={width}, height={height}, framerate={framerate}/1 ! "
-        # videobalance: 
+        f'libcamerasrc camera-name="{camera_name}" ! '
+        f'video/x-raw, width={width}, height={height}, framerate={framerate}/1 ! '
+        # videobalance:
         # hue: Lo movemos ligeramente a negativo para contrarrestar el verde.
         # contrast: Elevado para quitar lo "lavado".
         # brightness: Ajuste sutil de luz.
-        "videoconvert ! "
-        "video/x-raw, format=BGR ! "
-        "appsink drop=true max-buffers=1"
+        'videoconvert ! '
+        'video/x-raw, format=BGR ! '
+        'appsink drop=true max-buffers=1'
     )
 
 def generate_frames():
