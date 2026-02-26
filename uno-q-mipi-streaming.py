@@ -17,7 +17,7 @@ def get_gstreamer_pipeline(width=1280, height=720, framerate=30):
         # hue: Lo movemos ligeramente a negativo para contrarrestar el verde y darle un tono más cálido a tu piel.
         # contrast: Elevado para quitar lo "lavado".
         # brightness: Ajuste sutil de luz.
-        "videobalance contrast=1.4 hue=-0.15 brightness=0.08 saturation=1.2 ! "
+        # "videobalance contrast=1.4 hue=-0.15 brightness=0.08 saturation=1.2 ! "
         "videoconvert ! "
         "video/x-raw, format=BGR ! "
         "appsink drop=true max-buffers=1"
