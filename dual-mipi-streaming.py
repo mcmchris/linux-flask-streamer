@@ -15,18 +15,15 @@ class DualCameraStream:
 
     def start_camera(self, cam_id, device_node, label_name, width, height, is_10bit):
         print(f"[{label_name}] Conectando V4L2 Nativo a {device_node}...")
-        
         cap = cv2.VideoCapture(device_node, cv2.CAP_V4L2)
         
-        # Le hablamos a cada sensor en su idioma exacto
         if is_10bit:
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
         else:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'RGGB'))
             
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        # CRÍTICO: Bloqueamos el procesamiento de color automático para evitar crasheos
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
         if not cap.isOpened():
@@ -39,44 +36,61 @@ class DualCameraStream:
     def _update_loop(self, cap, cam_id, label_name, width, height, is_10bit):
         prev_time = time.time()
         frame_count = 0
-        
-        # Pre-calculamos el tamaño esperado para 10-bit MIPI
         expected_10bit_size = int((width * height / 4) * 5)
+        expected_8bit_size = width * height
         
         while True:
             ret, img = cap.read()
+            
             if not ret or img is None:
                 time.sleep(0.01)
                 continue
 
-            # --- TRATAMIENTO DE LA IMAGEN RAW ---
             try:
+                # --- 1. EXTRACCIÓN DEL RAW (Ignorando el padding del Kernel) ---
+                raw_bytes = img.flatten()
+                
                 if is_10bit:
-                    # Truco de ingeniería para la IMX708: Extraer 8-bits de los 10-bits MIPI
-                    raw_bytes = img.flatten()
-                    if len(raw_bytes) != expected_10bit_size:
-                        continue # Saltamos fotogramas corruptos
-                    
-                    # Agrupamos en bloques de 5 bytes y nos quedamos con los 4 primeros
-                    blocks = raw_bytes.reshape(-1, 5)
+                    if len(raw_bytes) < expected_10bit_size:
+                        raise ValueError(f"Faltan bytes. Esperados: {expected_10bit_size}, Recibidos: {len(raw_bytes)}")
+                    # Cortamos la basura del padding al final
+                    blocks = raw_bytes[:expected_10bit_size].reshape(-1, 5)
                     pixels_8bit = blocks[:, :4].flatten()
-                    
-                    # Le damos forma geométrica y coloreamos
                     bayer_2d = pixels_8bit.reshape((height, width))
-                    color = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
                 else:
-                    # La IMX219 es 8-bit nativa, solo le damos forma y coloreamos
-                    bayer_2d = img.reshape((height, width))
-                    color = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
+                    if len(raw_bytes) < expected_8bit_size:
+                        raise ValueError(f"Faltan bytes. Esperados: {expected_8bit_size}, Recibidos: {len(raw_bytes)}")
+                    bayer_2d = raw_bytes[:expected_8bit_size].reshape((height, width))
                     
-                # Reducimos la imagen para el streaming web
+                # --- 2. DECODIFICACIÓN DE COLOR ---
+                # Usamos BG2BGR que es el estándar habitual para Raspberry/IMX
+                color = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
+                
+                # --- 3. AUTO BALANCE DE BLANCOS (AWB - Gray World) ---
+                # Ecualizamos los canales Rojo y Azul tomando el Verde como referencia
+                mean_b, mean_g, mean_r, _ = cv2.mean(color)
+                gain_b = mean_g / (mean_b + 1e-5)
+                gain_r = mean_g / (mean_r + 1e-5)
+                
+                b, g, r = cv2.split(color)
+                b = cv2.convertScaleAbs(b, alpha=gain_b)
+                r = cv2.convertScaleAbs(r, alpha=gain_r)
+                color = cv2.merge([b, g, r])
+                
+                # --- 4. AUTO EXPOSICIÓN LIGERA ---
+                color = cv2.normalize(color, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                
+                # Reducimos tamaño para la web
                 final_img = cv2.resize(color, (640, 360))
                 
             except Exception as e:
-                print(f"[{label_name}] Error procesando frame: {e}")
-                continue
+                # MODO DEBUG: Si falla, creamos una pantalla roja con el error visible en la web
+                final_img = np.zeros((360, 640, 3), dtype=np.uint8)
+                final_img[:] = (0, 0, 150) # Rojo oscuro
+                cv2.putText(final_img, f"ERROR: {str(e)[:40]}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                print(f"[{label_name}] Loop Exception: {e}")
 
-            # --- MATEMÁTICAS DE FPS ---
+            # --- MATEMÁTICAS DE FPS Y RENDERIZADO ---
             frame_count += 1
             curr_time = time.time()
             elapsed = curr_time - prev_time
@@ -98,11 +112,9 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-# INICIALIZAMOS DIRECTAMENTE A LA RAM
-# IMX708 en /dev/video0 a 1536x864 (is_10bit = True)
+# IMX708
 streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
-
-# IMX219 en /dev/video4 a 3280x2464 (is_10bit = False)
+# IMX219
 streamer.start_camera("cam1", "/dev/video4", "IMX219", 3280, 2464, False)
 
 def frame_generator(cam_id):
@@ -114,16 +126,13 @@ def frame_generator(cam_id):
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 @app.route('/video_feed/cam0')
-def video_feed_cam0(): 
-    return Response(frame_generator("cam0"), mimetype='multipart/x-mixed-replace; boundary=frame')
+def video_feed_cam0(): return Response(frame_generator("cam0"), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/video_feed/cam1')
-def video_feed_cam1(): 
-    return Response(frame_generator("cam1"), mimetype='multipart/x-mixed-replace; boundary=frame')
+def video_feed_cam1(): return Response(frame_generator("cam1"), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/')
-def index(): 
-    return render_template('dual-stream.html')
+def index(): return render_template('dual-stream.html')
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False, threaded=True)
