@@ -19,12 +19,14 @@ camera_state = {
         'subdev': '/dev/v4l-subdev13',
         'r_gain': 1.6, 'g_gain': 0.9, 'b_gain': 1.4,
         'contrast': 1.1, 'brightness': 0,
+        'saturation': 1.2, # <--- NUEVO VALOR
         'exposure': 800, 'analogue_gain': 700
     },
     "cam1": { 
         'subdev': '/dev/v4l-subdev12',
         'r_gain': 1.6, 'g_gain': 0.9, 'b_gain': 1.4,
         'contrast': 1.1, 'brightness': 0,
+        'saturation': 1.2, # <--- NUEVO VALOR
         'exposure': 800, 'analogue_gain': 200 # Bajamos exposure para mejorar FPS
     }
 }
@@ -41,6 +43,27 @@ class DualCameraStream:
             [0., 0., r_gain]
         ], dtype=np.float32)
         return cv2.transform(img, matrix)
+    
+    def apply_ccm(self, img, saturation):
+        # Matriz base calibrada (Estilo sRGB / Raspberry Pi)
+        # Ojo: OpenCV usa BGR, no RGB. Esta matriz resta contaminación cruzada.
+        base_ccm = np.array([
+            [ 1.40, -0.20, -0.20], # Salida Azul
+            [-0.10,  1.30, -0.20], # Salida Verde
+            [-0.15, -0.25,  1.40]  # Salida Roja
+        ], dtype=np.float32)
+        
+        # Matriz sin efecto (Identidad)
+        identity = np.array([[1,0,0], [0,1,0], [0,0,1]], dtype=np.float32)
+        
+        # Calculamos la matriz final basada en el slider de saturación
+        ccm = identity + (base_ccm - identity) * saturation
+        
+        # Aplicamos la matriz a toda la imagen
+        img_corrected = cv2.transform(img, ccm)
+        
+        # Evitamos artefactos limitando los valores entre 0 y 255
+        return np.clip(img_corrected, 0, 255).astype(np.uint8)
 
     def apply_v4l2_hardware_settings(self, cam_id):
         state = camera_state[cam_id]
@@ -111,9 +134,12 @@ class DualCameraStream:
                 
                 # ISP PASO 3: Balance de Blancos
                 wb_img = self.fast_white_balance(small_color, state['r_gain'], state['g_gain'], state['b_gain'])
+
+                # ISP PASO 3.5: Matriz de Corrección de Color (Punch y Saturación)
+                ccm_img = self.apply_ccm(wb_img, state['saturation'])
                 
                 # ISP PASO 4: Contraste y Brillo base
-                adjusted_img = cv2.convertScaleAbs(wb_img, alpha=state['contrast'], beta=state['brightness'])
+                adjusted_img = cv2.convertScaleAbs(ccm_img, alpha=state['contrast'], beta=state['brightness'])
 
                 # ISP PASO 5: Corrección Gamma (Look natural / Raspberry Pi)
                 final_img = cv2.LUT(adjusted_img, gamma_table)
@@ -172,7 +198,7 @@ def update_settings():
     cam_id = data.get('cam_id')
     
     if cam_id in camera_state:
-        for key in ['r_gain', 'g_gain', 'b_gain', 'contrast']:
+        for key in ['r_gain', 'g_gain', 'b_gain', 'contrast', 'saturation']:
             camera_state[cam_id][key] = float(data.get(key, camera_state[cam_id][key]))
         camera_state[cam_id]['brightness'] = int(data.get('brightness', camera_state[cam_id]['brightness']))
         
