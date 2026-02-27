@@ -63,9 +63,10 @@ class DualCameraStream:
         with self.lock: return self.frames.get(cam_id)
 
 streamer = DualCameraStream()
-# Iniciamos pidiendo las resoluciones exactas que soldamos en router.sh
+# IMX708 enrutada a 1536x864
 streamer.start_camera("cam0", "/dev/video3", "IMX708", 1536, 864)
-streamer.start_camera("cam1", "/dev/video7", "IMX219", 1640, 1232)
+# IMX219 enrutada a su resolución nativa monstruosa 3280x2464
+streamer.start_camera("cam1", "/dev/video7", "IMX219", 3280, 2464)
 
 def frame_generator(cam_id):
     while True:
