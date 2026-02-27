@@ -105,10 +105,10 @@ streamer = DualCameraStream()
 streamer.start_camera("cam1", "/dev/video4", "IMX219", 3280, 2464, False)
 
 # 2. Le damos 2 segundos a la RAM para asentarse
-time.sleep(2) 
+#time.sleep(2) 
 
 # 3. Encendemos el peso pluma, que cabe en cualquier hueco
-streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
+#streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
 
 
 def frame_generator(cam_id):
