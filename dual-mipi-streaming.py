@@ -25,6 +25,8 @@ class DualCameraStream:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+        # CRÍTICO: Evitamos que OpenCV encole memoria basura
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
 
         if not cap.isOpened():
             print(f"[{label_name}] ERROR FATAL: No se pudo abrir el nodo.")
@@ -40,8 +42,16 @@ class DualCameraStream:
         
         while True:
             ret, img = cap.read()
+            
             if not ret or img is None:
-                time.sleep(0.01)
+                # PANTALLA AZUL: El kernel no nos está dando datos (TimeOut o Lock)
+                fail_img = np.zeros((360, 640, 3), dtype=np.uint8)
+                fail_img[:] = (255, 0, 0) # BGR -> Azul
+                cv2.putText(fail_img, f"{label_name} NO SIGNAL", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                ret_enc, buffer = cv2.imencode('.jpg', fail_img)
+                if ret_enc:
+                    with self.lock: self.frames[cam_id] = buffer.tobytes()
+                time.sleep(0.1)
                 continue
 
             try:
@@ -49,25 +59,25 @@ class DualCameraStream:
                 
                 if is_10bit:
                     if len(raw_bytes) < expected_10bit_size:
-                        continue
+                        raise ValueError(f"Faltan Bytes: {len(raw_bytes)}")
                     blocks = raw_bytes[:expected_10bit_size].reshape(-1, 5)
                     pixels_8bit = blocks[:, :4].flatten()
                     bayer_2d = pixels_8bit.reshape((height, width))
                 else:
                     if len(raw_bytes) < expected_8bit_size:
-                        continue
+                        raise ValueError(f"Faltan Bytes: {len(raw_bytes)}")
                     bayer_2d = raw_bytes[:expected_8bit_size].reshape((height, width))
                     
-                # BYPASS DE COLOR: Tratamos el RAW como Blanco y Negro puro para máximo rendimiento
-                # Redimensionamos de inmediato para no saturar la RAM
+                # BYPASS DE COLOR (Modo B&W de alto rendimiento)
                 small_bw = cv2.resize(bayer_2d, (640, 360))
-                
-                # Lo convertimos a un falso BGR solo para que OpenCV pueda dibujar las letras en verde
+                # Convertimos a 3 canales falsos solo para que OpenCV pueda dibujar las letras verdes
                 final_img = cv2.cvtColor(small_bw, cv2.COLOR_GRAY2BGR)
                 
             except Exception as e:
-                print(f"[{label_name}] Error: {e}")
-                continue
+                # PANTALLA ROJA: Llegó la imagen pero con tamaño corrupto
+                final_img = np.zeros((360, 640, 3), dtype=np.uint8)
+                final_img[:] = (0, 0, 200) # BGR -> Rojo
+                cv2.putText(final_img, f"ERROR: {str(e)[:40]}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
             # --- MATEMÁTICAS DE FPS ---
             frame_count += 1
@@ -79,9 +89,9 @@ class DualCameraStream:
                 prev_time = curr_time; frame_count = 0
 
             cv2.putText(final_img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            ret, buffer = cv2.imencode('.jpg', final_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            ret_enc, buffer = cv2.imencode('.jpg', final_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
             
-            if ret:
+            if ret_enc:
                 with self.lock:
                     self.frames[cam_id] = buffer.tobytes()
 
@@ -90,7 +100,10 @@ class DualCameraStream:
             return self.frames.get(cam_id)
 
 streamer = DualCameraStream()
+
+# CRÍTICO: Encendemos de a una para no infartar al canal DMA
 streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
+time.sleep(2) # Dejamos que la RAM se estabilice
 streamer.start_camera("cam1", "/dev/video4", "IMX219", 3280, 2464, False)
 
 def frame_generator(cam_id):
