@@ -26,20 +26,18 @@ class DualCameraStream:
             print(f"[{label_name}] ERROR FATAL: No se pudo abrir el nodo.")
             return
 
-        threading.Thread(target=self._update_loop, args=(cap, cam_id, label_name, width, height), daemon=True).start()
+        threading.Thread(target=self._update_loop, args=(cap, cam_id, label_name, width, height, is_10bit), daemon=True).start()
 
-    def _update_loop(self, cap, cam_id, label_name, width, height):
+    def _update_loop(self, cap, cam_id, label_name, width, height, is_10bit):
         prev_time = time.time()
         frame_count = 0
-        # Ahora ambas cámaras usan esta misma matemática de 10-bits
-        expected_size = int((width * height / 4) * 5)
         
         while True:
             ret, img = cap.read()
             
             if not ret or img is None:
                 fail_img = np.zeros((360, 640, 3), dtype=np.uint8)
-                fail_img[:] = (255, 0, 0) # Azul
+                fail_img[:] = (255, 0, 0) 
                 cv2.putText(fail_img, f"{label_name} NO SIGNAL", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                 ret_enc, buffer = cv2.imencode('.jpg', fail_img)
                 if ret_enc:
@@ -49,24 +47,38 @@ class DualCameraStream:
 
             try:
                 raw_bytes = img.flatten()
-                if len(raw_bytes) < expected_size:
-                    continue
+                total_bytes = len(raw_bytes)
                 
-                # Decodificación 10-bit a 8-bit ultra rápida
-                blocks = raw_bytes[:expected_size].reshape(-1, 5)
-                pixels_8bit = blocks[:, :4].flatten()
-                bayer_2d = pixels_8bit.reshape((height, width))
+                # LA MAGIA: Calculamos el ancho real de la memoria (incluyendo la basura del kernel)
+                stride = total_bytes // height
+                
+                if is_10bit:
+                    valid_bytes_per_line = int(width * 1.25)
+                    # 1. Armamos la cuadrícula con todo y basura
+                    padded_2d = raw_bytes.reshape((height, stride))
+                    # 2. Cortamos la basura del lado derecho (Padding)
+                    clean_bytes = padded_2d[:, :valid_bytes_per_line].flatten()
                     
-                # BYPASS DE COLOR (Blanco y Negro puro) para velocidad máxima
+                    # 3. Extraemos los 8-bits reales de los 10-bits empaquetados
+                    blocks = clean_bytes.reshape(-1, 5)
+                    pixels_8bit = blocks[:, :4].flatten()
+                    bayer_2d = pixels_8bit.reshape((height, width))
+                else:
+                    valid_bytes_per_line = width
+                    padded_2d = raw_bytes.reshape((height, stride))
+                    clean_bytes = padded_2d[:, :valid_bytes_per_line].flatten()
+                    bayer_2d = clean_bytes.reshape((height, width))
+                    
+                # BYPASS LIGERO (Solo forma y Auto-Brillo)
                 small_bw = cv2.resize(bayer_2d, (640, 360))
+                small_bw = cv2.normalize(small_bw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) # Auto-Brillo
                 final_img = cv2.cvtColor(small_bw, cv2.COLOR_GRAY2BGR)
                 
             except Exception as e:
                 final_img = np.zeros((360, 640, 3), dtype=np.uint8)
-                final_img[:] = (0, 0, 200) # Rojo
+                final_img[:] = (0, 0, 200) 
                 cv2.putText(final_img, f"ERROR: {str(e)[:40]}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-            # Matemáticas de FPS
             frame_count += 1
             curr_time = time.time()
             elapsed = curr_time - prev_time
@@ -88,7 +100,7 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-# AMBAS CÁMARAS ACTIVAS (Con la IMX219 en dieta de RAM)
+# AMBAS CÁMARAS ACTIVAS (10-bit)
 streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
 streamer.start_camera("cam1", "/dev/video4", "IMX219", 1640, 1232, True)
 
