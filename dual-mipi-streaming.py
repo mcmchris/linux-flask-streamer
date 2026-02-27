@@ -12,20 +12,20 @@ class DualCameraStream:
         self.frames = {"cam0": None, "cam1": None}
         self.lock = threading.Lock()
 
-    def get_pipeline(self, device_node, sensor_w, sensor_h):
-            return (
-                f'v4l2src device={device_node} ! '
-                # Leemos el tamaño masivo que viene del hardware
-                f'video/x-raw, format=UYVY, width={sensor_w}, height={sensor_h} ! '
-                # Escalamiento súper rápido por hardware/C++ para no matar tu CPU
-                'videoscale ! video/x-raw, width=640, height=360 ! '
-                'videoconvert ! video/x-raw, format=BGR ! '
-                'appsink drop=true max-buffers=1'
-            )
+    def get_pipeline(self, device_node, bayer_format, width, height):
+        return (
+            f'v4l2src device={device_node} ! '
+            # Leemos el RAW Bayer exacto que manda el hardware
+            f'video/x-bayer, format={bayer_format}, width={width}, height={height} ! '
+            # Descodificamos el color y escalamos hacia abajo por software
+            'bayer2rgb ! videoscale ! video/x-raw, width=640, height=360 ! '
+            'videoconvert ! video/x-raw, format=BGR ! '
+            'appsink drop=true max-buffers=1'
+        )
 
-    def start_camera(self, cam_id, device_node, label_name, width, height):
-        print(f"[{label_name}] Conectando a {device_node}...")
-        pipeline = self.get_pipeline(device_node, width, height)
+    def start_camera(self, cam_id, device_node, label_name, bayer_format, width, height):
+        print(f"[{label_name}] Conectando a {device_node} en modo RAW...")
+        pipeline = self.get_pipeline(device_node, bayer_format, width, height)
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         
         if not cap.isOpened():
@@ -63,10 +63,12 @@ class DualCameraStream:
         with self.lock: return self.frames.get(cam_id)
 
 streamer = DualCameraStream()
-# IMX708 enrutada a 1536x864
-streamer.start_camera("cam0", "/dev/video3", "IMX708", 1536, 864)
-# IMX219 enrutada a su resolución nativa monstruosa 3280x2464
-streamer.start_camera("cam1", "/dev/video7", "IMX219", 3280, 2464)
+
+# INICIALIZACIÓN DE CÁMARAS EN MODO RAW
+# IMX708 en /dev/video0: Usa rggb10 (10-bit)
+streamer.start_camera("cam0", "/dev/video0", "IMX708", "rggb10", 1536, 864)
+# IMX219 en /dev/video4: Usa rggb (8-bit)
+streamer.start_camera("cam1", "/dev/video4", "IMX219", "rggb", 3280, 2464)
 
 def frame_generator(cam_id):
     while True:
