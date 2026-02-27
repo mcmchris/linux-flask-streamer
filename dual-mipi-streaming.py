@@ -90,17 +90,29 @@ class DualCameraStream:
                     clean_bytes = padded_2d[:, :valid_bytes_per_line].flatten()
                     bayer_2d = clean_bytes.reshape((height, width))
                     
-                # --- DECODIFICACIÓN DE COLOR (Demosaicing) ---
-                # Convertimos el patrón Bayer RGGB crudo a una imagen BGR a color
-                # SRGGB10 usa el formato RGGB, por lo que usamos COLOR_BayerRG2BGR
-                color_img = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerRG2BGR)
+                # --- 1. DECODIFICACIÓN DE COLOR (Corregir piel azul) ---
+                # Cambiamos BayerRG2BGR por BayerBG2BGR para invertir Rojo y Azul
+                color_img = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
                 
-                # Redimensionamos la imagen YA a color
+                # Redimensionamos para procesar más rápido
                 small_color = cv2.resize(color_img, (640, 360))
                 
-                # Auto-brillo digital (Aumenta el contraste y la luz por software)
-                # alpha es el contraste (1.0-3.0), beta es el brillo (0-100)
-                final_img = cv2.convertScaleAbs(small_color, alpha=2.5, beta=10)        
+                # --- 2. BALANCE DE BLANCOS POR SOFTWARE (Quitar lo verde) ---
+                # Separamos los canales (En OpenCV el orden es Azul, Verde, Rojo)
+                b, g, r = cv2.split(small_color)
+                
+                # Multiplicamos los canales de forma independiente
+                # (Puedes jugar con estos números decimales según la luz de tu cuarto)
+                r = cv2.multiply(r, 1.9)  # Inyectamos más rojo (calidez)
+                b = cv2.multiply(b, 1.4)  # Inyectamos un poco más de azul
+                g = cv2.multiply(g, 0.85) # Reducimos la dominancia del verde
+                
+                # Volvemos a unir la imagen
+                wb_img = cv2.merge((b, g, r))
+                
+                # --- 3. CONTRASTE FINAL ---
+                # Como ya inyectamos luz en los canales, bajamos un poco el alpha (contraste)
+                final_img = cv2.convertScaleAbs(wb_img, alpha=1.2, beta=5)     
                 
             except Exception as e:
                 final_img = np.zeros((360, 640, 3), dtype=np.uint8)
