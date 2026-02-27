@@ -4,6 +4,7 @@ import cv2
 import time
 import threading
 import numpy as np
+import subprocess
 from flask import Flask, render_template, Response
 
 app = Flask(__name__, static_folder='templates/assets')
@@ -13,11 +14,37 @@ class DualCameraStream:
         self.frames = {"cam0": None, "cam1": None}
         self.lock = threading.Lock()
 
-    def start_camera(self, cam_id, device_node, label_name, width, height, is_10bit):
+    def start_camera(self, cam_id, device_node, subdev_node, label_name, width, height, is_10bit):
         print(f"[{label_name}] Conectando V4L2 Nativo a {device_node}...")
+        
+        # --- INYECCIÓN DE LUZ V4L2 ---
+        # Ajustamos los parámetros físicos del sensor antes de capturar
+        try:
+            if "IMX219" in label_name:
+                # IMX219: subdev12 en tu sistema
+                # exposure (max 1703), analogue_gain (max 232)
+                subprocess.run(f"v4l2-ctl -d {subdev_node} --set-ctrl exposure=1600", shell=True)
+                subprocess.run(f"v4l2-ctl -d {subdev_node} --set-ctrl analogue_gain=150", shell=True)
+                print(f"[{label_name}] Ajustes V4L2 (Luz) aplicados.")
+            
+            elif "IMX708" in label_name:
+                # IMX708: subdev13 en tu sistema
+                # exposure (max 874), analogue_gain (max 960)
+                subprocess.run(f"v4l2-ctl -d {subdev_node} --set-ctrl exposure=800", shell=True)
+                subprocess.run(f"v4l2-ctl -d {subdev_node} --set-ctrl analogue_gain=700", shell=True)
+                print(f"[{label_name}] Ajustes V4L2 (Luz) aplicados.")
+                
+        except Exception as e:
+            print(f"[{label_name}] Advertencia: No se pudieron aplicar los ajustes V4L2: {e}")
+        # -----------------------------
+
         cap = cv2.VideoCapture(device_node, cv2.CAP_V4L2)
         
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
+        if is_10bit:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
+        else:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'RGGB'))
+            
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
@@ -48,18 +75,12 @@ class DualCameraStream:
             try:
                 raw_bytes = img.flatten()
                 total_bytes = len(raw_bytes)
-                
-                # LA MAGIA: Calculamos el ancho real de la memoria (incluyendo la basura del kernel)
                 stride = total_bytes // height
                 
                 if is_10bit:
                     valid_bytes_per_line = int(width * 1.25)
-                    # 1. Armamos la cuadrícula con todo y basura
                     padded_2d = raw_bytes.reshape((height, stride))
-                    # 2. Cortamos la basura del lado derecho (Padding)
                     clean_bytes = padded_2d[:, :valid_bytes_per_line].flatten()
-                    
-                    # 3. Extraemos los 8-bits reales de los 10-bits empaquetados
                     blocks = clean_bytes.reshape(-1, 5)
                     pixels_8bit = blocks[:, :4].flatten()
                     bayer_2d = pixels_8bit.reshape((height, width))
@@ -71,7 +92,8 @@ class DualCameraStream:
                     
                 # BYPASS LIGERO (Solo forma y Auto-Brillo)
                 small_bw = cv2.resize(bayer_2d, (640, 360))
-                small_bw = cv2.normalize(small_bw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) # Auto-Brillo
+                # Auto-brillo extra por software
+                small_bw = cv2.normalize(small_bw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) 
                 final_img = cv2.cvtColor(small_bw, cv2.COLOR_GRAY2BGR)
                 
             except Exception as e:
@@ -101,8 +123,9 @@ class DualCameraStream:
 streamer = DualCameraStream()
 
 # AMBAS CÁMARAS ACTIVAS (10-bit)
-streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
-streamer.start_camera("cam1", "/dev/video4", "IMX219", 1640, 1232, True)
+# Notar que agregué el subdev_node como tercer parámetro basado en tu reporte
+streamer.start_camera("cam0", "/dev/video0", "/dev/v4l-subdev13", "IMX708", 1536, 864, True)
+streamer.start_camera("cam1", "/dev/video4", "/dev/v4l-subdev12", "IMX219", 1640, 1232, True)
 
 def frame_generator(cam_id):
     while True:
