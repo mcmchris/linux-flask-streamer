@@ -3,6 +3,7 @@
 import cv2
 import time
 import threading
+import numpy as np
 from flask import Flask, render_template, Response
 
 app = Flask(__name__, static_folder='templates/assets')
@@ -12,50 +13,80 @@ class DualCameraStream:
         self.frames = {"cam0": None, "cam1": None}
         self.lock = threading.Lock()
 
-    def get_pipeline(self, device_node, bayer_format, width, height):
-        return (
-            # io-mode=2 le dice a GStreamer que use la misma memoria MMAP que funcionó en la terminal
-            f'v4l2src device={device_node} io-mode=2 ! '
-            f'video/x-bayer, format={bayer_format}, width={width}, height={height} ! '
-            # Convertimos el RAW a Color y achicamos la imagen en C++ para no derretir tu procesador
-            'bayer2rgb ! videoscale ! video/x-raw, width=640, height=360 ! '
-            'videoconvert ! video/x-raw, format=BGR ! '
-            'appsink drop=true max-buffers=1'
-        )
-
-    def start_camera(self, cam_id, device_node, label_name, bayer_format, width, height):
-        print(f"[{label_name}] Conectando a {device_node} con formato {bayer_format} (MMAP)...")
-        pipeline = self.get_pipeline(device_node, bayer_format, width, height)
-        cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+    def start_camera(self, cam_id, device_node, label_name, width, height, is_10bit):
+        print(f"[{label_name}] Conectando V4L2 Nativo a {device_node}...")
         
+        cap = cv2.VideoCapture(device_node, cv2.CAP_V4L2)
+        
+        # Le hablamos a cada sensor en su idioma exacto
+        if is_10bit:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
+        else:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'RGGB'))
+            
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        # CRÍTICO: Bloqueamos el procesamiento de color automático para evitar crasheos
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+
         if not cap.isOpened():
-            print(f"[{label_name}] ERROR: OpenCV y GStreamer no pudieron negociar el formato.")
+            print(f"[{label_name}] ERROR FATAL: No se pudo abrir el nodo V4L2.")
             return
 
-        print(f"[{label_name}] ¡Hardware asegurado y transmitiendo!")
-        threading.Thread(target=self._update_loop, args=(cap, cam_id, label_name), daemon=True).start()
+        print(f"[{label_name}] ¡Hardware asegurado! Iniciando decodificación NumPy...")
+        threading.Thread(target=self._update_loop, args=(cap, cam_id, label_name, width, height, is_10bit), daemon=True).start()
 
-    def _update_loop(self, cap, cam_id, label_name):
+    def _update_loop(self, cap, cam_id, label_name, width, height, is_10bit):
         prev_time = time.time()
         frame_count = 0
         
+        # Pre-calculamos el tamaño esperado para 10-bit MIPI
+        expected_10bit_size = int((width * height / 4) * 5)
+        
         while True:
             ret, img = cap.read()
-            if not ret:
+            if not ret or img is None:
                 time.sleep(0.01)
                 continue
 
+            # --- TRATAMIENTO DE LA IMAGEN RAW ---
+            try:
+                if is_10bit:
+                    # Truco de ingeniería para la IMX708: Extraer 8-bits de los 10-bits MIPI
+                    raw_bytes = img.flatten()
+                    if len(raw_bytes) != expected_10bit_size:
+                        continue # Saltamos fotogramas corruptos
+                    
+                    # Agrupamos en bloques de 5 bytes y nos quedamos con los 4 primeros
+                    blocks = raw_bytes.reshape(-1, 5)
+                    pixels_8bit = blocks[:, :4].flatten()
+                    
+                    # Le damos forma geométrica y coloreamos
+                    bayer_2d = pixels_8bit.reshape((height, width))
+                    color = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
+                else:
+                    # La IMX219 es 8-bit nativa, solo le damos forma y coloreamos
+                    bayer_2d = img.reshape((height, width))
+                    color = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
+                    
+                # Reducimos la imagen para el streaming web
+                final_img = cv2.resize(color, (640, 360))
+                
+            except Exception as e:
+                print(f"[{label_name}] Error procesando frame: {e}")
+                continue
+
+            # --- MATEMÁTICAS DE FPS ---
             frame_count += 1
             curr_time = time.time()
             elapsed = curr_time - prev_time
             fps = frame_count / elapsed if elapsed > 0 else 0
             
             if elapsed > 1.0:
-                prev_time = curr_time
-                frame_count = 0
+                prev_time = curr_time; frame_count = 0
 
-            cv2.putText(img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            ret, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            cv2.putText(final_img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            ret, buffer = cv2.imencode('.jpg', final_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
             
             if ret:
                 with self.lock:
@@ -67,12 +98,12 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-# INICIALIZACIÓN CON LOS CÓDIGOS EXACTOS QUE NOS DIO EL HARDWARE
-# IMX708 en /dev/video0: Usa el formato 10-bit pRAA (rggb10 en GStreamer)
-streamer.start_camera("cam0", "/dev/video0", "IMX708", "rggb10", 1536, 864)
+# INICIALIZAMOS DIRECTAMENTE A LA RAM
+# IMX708 en /dev/video0 a 1536x864 (is_10bit = True)
+streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
 
-# IMX219 en /dev/video4: Usa el formato 8-bit RGGB (rggb en GStreamer)
-streamer.start_camera("cam1", "/dev/video4", "IMX219", "rggb", 3280, 2464)
+# IMX219 en /dev/video4 a 3280x2464 (is_10bit = False)
+streamer.start_camera("cam1", "/dev/video4", "IMX219", 3280, 2464, False)
 
 def frame_generator(cam_id):
     while True:
