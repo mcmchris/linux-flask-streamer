@@ -15,9 +15,9 @@ class DualCameraStream:
     def get_pipeline(self, device_node, bayer_format, width, height):
         return (
             f'v4l2src device={device_node} ! '
-            # Leemos el RAW Bayer exacto que manda el hardware
+            # Leemos el RAW Bayer exacto que configuramos en el router
             f'video/x-bayer, format={bayer_format}, width={width}, height={height} ! '
-            # Descodificamos el color y escalamos hacia abajo por software
+            # Magia: Descodificamos el color (bayer2rgb) y achicamos la imagen
             'bayer2rgb ! videoscale ! video/x-raw, width=640, height=360 ! '
             'videoconvert ! video/x-raw, format=BGR ! '
             'appsink drop=true max-buffers=1'
@@ -64,11 +64,10 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-# INICIALIZACIÓN DE CÁMARAS EN MODO RAW (RDI)
-# IMX708 ahora vive en el nodo RAW 0
+# INICIALIZACIÓN: Apuntamos a los nodos RAW y pasamos el código Bayer exacto
+# IMX708 -> RAW 10-bit (rggb10)
 streamer.start_camera("cam0", "/dev/video0", "IMX708", "rggb10", 1536, 864)
-
-# IMX219 ahora vive en el nodo RAW 4
+# IMX219 -> RAW 8-bit (rggb)
 streamer.start_camera("cam1", "/dev/video4", "IMX219", "rggb", 3280, 2464)
 
 def frame_generator(cam_id):
