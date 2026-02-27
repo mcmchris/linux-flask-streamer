@@ -103,8 +103,8 @@ streamer = DualCameraStream()
 
 # CRÍTICO: Encendemos de a una para no infartar al canal DMA
 streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
-time.sleep(2) # Dejamos que la RAM se estabilice
-streamer.start_camera("cam1", "/dev/video4", "IMX219", 1280, 720, False)
+time.sleep(5) # Dejamos que la RAM se estabilice
+streamer.start_camera("cam1", "/dev/video4", "IMX219", 3280, 2464, False)
 
 def frame_generator(cam_id):
     while True:
