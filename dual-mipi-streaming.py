@@ -27,10 +27,9 @@ class DualCameraStream:
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
         if not cap.isOpened():
-            print(f"[{label_name}] ERROR FATAL: No se pudo abrir el nodo V4L2.")
+            print(f"[{label_name}] ERROR FATAL: No se pudo abrir el nodo.")
             return
 
-        print(f"[{label_name}] ¡Hardware asegurado! Iniciando decodificación NumPy...")
         threading.Thread(target=self._update_loop, args=(cap, cam_id, label_name, width, height, is_10bit), daemon=True).start()
 
     def _update_loop(self, cap, cam_id, label_name, width, height, is_10bit):
@@ -41,56 +40,36 @@ class DualCameraStream:
         
         while True:
             ret, img = cap.read()
-            
             if not ret or img is None:
                 time.sleep(0.01)
                 continue
 
             try:
-                # --- 1. EXTRACCIÓN DEL RAW (Ignorando el padding del Kernel) ---
                 raw_bytes = img.flatten()
                 
                 if is_10bit:
                     if len(raw_bytes) < expected_10bit_size:
-                        raise ValueError(f"Faltan bytes. Esperados: {expected_10bit_size}, Recibidos: {len(raw_bytes)}")
-                    # Cortamos la basura del padding al final
+                        continue
                     blocks = raw_bytes[:expected_10bit_size].reshape(-1, 5)
                     pixels_8bit = blocks[:, :4].flatten()
                     bayer_2d = pixels_8bit.reshape((height, width))
                 else:
                     if len(raw_bytes) < expected_8bit_size:
-                        raise ValueError(f"Faltan bytes. Esperados: {expected_8bit_size}, Recibidos: {len(raw_bytes)}")
+                        continue
                     bayer_2d = raw_bytes[:expected_8bit_size].reshape((height, width))
                     
-                # --- 2. DECODIFICACIÓN DE COLOR ---
-                # Usamos BG2BGR que es el estándar habitual para Raspberry/IMX
-                color = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
+                # BYPASS DE COLOR: Tratamos el RAW como Blanco y Negro puro para máximo rendimiento
+                # Redimensionamos de inmediato para no saturar la RAM
+                small_bw = cv2.resize(bayer_2d, (640, 360))
                 
-                # --- 3. AUTO BALANCE DE BLANCOS (AWB - Gray World) ---
-                # Ecualizamos los canales Rojo y Azul tomando el Verde como referencia
-                mean_b, mean_g, mean_r, _ = cv2.mean(color)
-                gain_b = mean_g / (mean_b + 1e-5)
-                gain_r = mean_g / (mean_r + 1e-5)
-                
-                b, g, r = cv2.split(color)
-                b = cv2.convertScaleAbs(b, alpha=gain_b)
-                r = cv2.convertScaleAbs(r, alpha=gain_r)
-                color = cv2.merge([b, g, r])
-                
-                # --- 4. AUTO EXPOSICIÓN LIGERA ---
-                color = cv2.normalize(color, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-                
-                # Reducimos tamaño para la web
-                final_img = cv2.resize(color, (640, 360))
+                # Lo convertimos a un falso BGR solo para que OpenCV pueda dibujar las letras en verde
+                final_img = cv2.cvtColor(small_bw, cv2.COLOR_GRAY2BGR)
                 
             except Exception as e:
-                # MODO DEBUG: Si falla, creamos una pantalla roja con el error visible en la web
-                final_img = np.zeros((360, 640, 3), dtype=np.uint8)
-                final_img[:] = (0, 0, 150) # Rojo oscuro
-                cv2.putText(final_img, f"ERROR: {str(e)[:40]}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                print(f"[{label_name}] Loop Exception: {e}")
+                print(f"[{label_name}] Error: {e}")
+                continue
 
-            # --- MATEMÁTICAS DE FPS Y RENDERIZADO ---
+            # --- MATEMÁTICAS DE FPS ---
             frame_count += 1
             curr_time = time.time()
             elapsed = curr_time - prev_time
@@ -111,10 +90,7 @@ class DualCameraStream:
             return self.frames.get(cam_id)
 
 streamer = DualCameraStream()
-
-# IMX708
 streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
-# IMX219
 streamer.start_camera("cam1", "/dev/video4", "IMX219", 3280, 2464, False)
 
 def frame_generator(cam_id):
