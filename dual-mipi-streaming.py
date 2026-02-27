@@ -13,11 +13,12 @@ class DualCameraStream:
         self.frames = {"cam0": None, "cam1": None}
         self.lock = threading.Lock()
 
-    def start_camera(self, cam_id, device_node, label_name, width, height, is_10bit):
-        print(f"[{label_name}] Conectando V4L2 Nativo a {device_node}...")
-        cap = cv2.VideoCapture(device_node, cv2.CAP_V4L2)
+    def start_camera(self, cam_id, device_index, label_name, width, height, is_10bit):
+        print(f"[{label_name}] Conectando V4L2 Nativo al índice {device_index}...")
         
-        # Declaramos los formatos de memoria para que OpenCV no se confunda
+        # Pasamos el número entero directamente (ej. 4 para /dev/video4)
+        cap = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
+        
         if is_10bit:
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
         else:
@@ -26,12 +27,14 @@ class DualCameraStream:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
+        
+        # ELIMINAMOS el límite de BUFFERSIZE para evitar que el DMA colapse
 
         if not cap.isOpened():
-            print(f"[{label_name}] ERROR FATAL: No se pudo abrir el nodo.")
+            print(f"[{label_name}] ERROR FATAL: No se pudo abrir el nodo de hardware.")
             return
 
+        print(f"[{label_name}] Hardware asegurado. Iniciando captura...")
         threading.Thread(target=self._update_loop, args=(cap, cam_id, label_name, width, height, is_10bit), daemon=True).start()
 
     def _update_loop(self, cap, cam_id, label_name, width, height, is_10bit):
@@ -44,7 +47,7 @@ class DualCameraStream:
             ret, img = cap.read()
             
             if not ret or img is None:
-                # PANTALLA AZUL: Fragmentación de memoria o timeout del kernel
+                # PANTALLA AZUL: El kernel no entregó el frame
                 fail_img = np.zeros((360, 640, 3), dtype=np.uint8)
                 fail_img[:] = (255, 0, 0) 
                 cv2.putText(fail_img, f"{label_name} NO SIGNAL", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
@@ -68,12 +71,12 @@ class DualCameraStream:
                         continue
                     bayer_2d = raw_bytes[:expected_8bit_size].reshape((height, width))
                     
-                # BYPASS DE COLOR (Blanco y Negro puro) para no asfixiar la CPU
+                # BYPASS DE COLOR (Blanco y Negro puro)
                 small_bw = cv2.resize(bayer_2d, (640, 360))
                 final_img = cv2.cvtColor(small_bw, cv2.COLOR_GRAY2BGR)
                 
             except Exception as e:
-                # PANTALLA ROJA: Llegó la imagen pero con el tamaño equivocado
+                # PANTALLA ROJA: Error en las dimensiones de NumPy
                 final_img = np.zeros((360, 640, 3), dtype=np.uint8)
                 final_img[:] = (0, 0, 200) 
                 cv2.putText(final_img, f"ERROR: {str(e)[:40]}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
@@ -100,15 +103,13 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-# --- EL CAMBIO MAESTRO: ORDEN DE ENCENDIDO ---
-# 1. El peso pesado asegura sus 8 Megabytes de RAM continua primero
-streamer.start_camera("cam1", "/dev/video4", "IMX219", 3280, 2464, False)
+# --- PRUEBA AISLADA ---
+# Encendemos solo la IMX219 (Índice 4 en lugar de string)
+streamer.start_camera("cam1", 4, "IMX219", 3280, 2464, False)
 
-# 2. Le damos 2 segundos a la RAM para asentarse
-#time.sleep(2) 
-
-# 3. Encendemos el peso pluma, que cabe en cualquier hueco
-#streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
+# IMX708 desactivada temporalmente
+# time.sleep(2)
+# streamer.start_camera("cam0", 0, "IMX708", 1536, 864, True)
 
 
 def frame_generator(cam_id):
@@ -129,4 +130,5 @@ def video_feed_cam1(): return Response(frame_generator("cam1"), mimetype='multip
 def index(): return render_template('dual-stream.html')
 
 if __name__ == "__main__":
+    # NUNCA usar debug=True con hardware
     app.run(host="0.0.0.0", port=8080, debug=False, threaded=True)
