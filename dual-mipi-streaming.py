@@ -2,82 +2,111 @@
 
 import cv2
 import time
+import threading
 from flask import Flask, render_template, Response
 
 app = Flask(__name__, static_folder='templates/assets')
 
-# Diccionario con las rutas exactas de hardware de tus sensores
 CAMERAS = {
     "imx708": r"/base/soc\@0/cci\@5c1b000/i2c-bus\@0/sensor\@1a",
     "imx219": r"/base/soc\@0/cci\@5c1b000/i2c-bus\@1/sensor\@10"
 }
 
-# 1. EL TRABAJO PESADO EN GSTREAMER
-def get_gstreamer_pipeline(camera_name, width=1280, height=720, framerate=30):
-    return (
-        f'libcamerasrc camera-name="{camera_name}" ! '
-        f'video/x-raw, width={width}, height={height}, framerate={framerate}/1 ! '
-        'videoconvert ! '
-        'video/x-raw, format=BGR ! '
-        'appsink drop=true max-buffers=1'
-    )
+class DualCameraStream:
+    def __init__(self):
+        # Aquí guardaremos el último frame en JPEG de cada cámara
+        self.frames = {"cam0": None, "cam1": None}
+        self.lock = threading.Lock()
 
-def generate_frames(camera_name, label_name):
-    pipeline = get_gstreamer_pipeline(camera_name)
-    print(f"[{label_name}] Iniciando cámara con pipeline:", pipeline)
-    
-    camera = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+    def get_pipeline(self, camera_name):
+        return (
+            f'libcamerasrc camera-name="{camera_name}" ! '
+            'video/x-raw, width=1280, height=720, framerate=30/1 ! '
+            'videoconvert ! video/x-raw, format=BGR ! '
+            'appsink drop=true max-buffers=1'
+        )
 
-    if not camera.isOpened():
-        raise Exception(f"No se pudo inicializar la cámara: {label_name}")
-
-    print(f"[{label_name}] MIPI inicializada correctamente.")
-    
-    prev_time = time.time()
-    frame_count = 0
-
-    while True:
-        ret, img = camera.read()
-        if not ret:
-            time.sleep(0.01)
-            continue
-            
-        # Cálculo de FPS
-        frame_count += 1
-        curr_time = time.time()
-        elapsed_time = curr_time - prev_time
-        fps = frame_count / elapsed_time if elapsed_time > 0 else 0
+    def start_camera(self, cam_id, camera_name, label_name):
+        print(f"[{label_name}] Reservando rutas de hardware...")
+        pipeline = self.get_pipeline(camera_name)
+        cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         
-        if elapsed_time > 1.0:
-            prev_time = curr_time
-            frame_count = 0
+        if not cap.isOpened():
+            print(f"[{label_name}] ERROR FATAL: No se pudo abrir la cámara.")
+            return
 
-        # Dibujar nombre de la cámara y FPS en pantalla
-        cv2.putText(img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        print(f"[{label_name}] Hardware asegurado. Iniciando motor de captura.")
+        # Arrancamos un hilo independiente infinito solo para leer esta cámara
+        threading.Thread(target=self._update_loop, args=(cap, cam_id, label_name), daemon=True).start()
 
-        # Codificar a JPEG (Calidad en 80 para aligerar la carga de la CPU)
-        ret, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if not ret:
-            continue
+    def _update_loop(self, cap, cam_id, label_name):
+        prev_time = time.time()
+        frame_count = 0
+        
+        while True:
+            ret, img = cap.read()
+            if not ret:
+                time.sleep(0.01)
+                continue
+
+            # Matemáticas de FPS
+            frame_count += 1
+            curr_time = time.time()
+            elapsed = curr_time - prev_time
+            fps = frame_count / elapsed if elapsed > 0 else 0
             
-        frame = buffer.tobytes()
+            if elapsed > 1.0:
+                prev_time = curr_time
+                frame_count = 0
+
+            cv2.putText(img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            # Codificamos a JPEG una sola vez por frame
+            ret, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            
+            # Guardamos el resultado en el diccionario protegido
+            if ret:
+                with self.lock:
+                    self.frames[cam_id] = buffer.tobytes()
+
+    def get_frame(self, cam_id):
+        # Extraemos el último frame de forma segura
+        with self.lock:
+            return self.frames.get(cam_id)
+
+# 1. Instanciamos el controlador
+streamer = DualCameraStream()
+
+# 2. El truco maestro: Encendemos las cámaras SECUENCIALMENTE con una pausa.
+# Esto evita que libcamera intente usar el decodificador 'msm_csid0' para ambas.
+streamer.start_camera("cam0", CAMERAS["imx708"], "IMX708")
+print("Esperando 2 segundos para estabilizar el pipeline MIPI...")
+time.sleep(2) 
+streamer.start_camera("cam1", CAMERAS["imx219"], "IMX219")
+print("Cámaras duales en línea. Iniciando servidor Flask...")
+
+# 3. Generador súper ligero para Flask
+def frame_generator(cam_id):
+    while True:
+        frame = streamer.get_frame(cam_id)
+        if frame is None:
+            time.sleep(0.1)
+            continue
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-# Rutas separadas para cada flujo de video
+# 4. Rutas Web
 @app.route('/video_feed/cam0')
 def video_feed_cam0():
-    return Response(generate_frames(CAMERAS["imx708"], "IMX708"), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(frame_generator("cam0"), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/video_feed/cam1')
 def video_feed_cam1():
-    return Response(generate_frames(CAMERAS["imx219"], "IMX219"), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(frame_generator("cam1"), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/')
 def index():
-    # Flask buscará automáticamente este archivo en la carpeta "templates"
     return render_template('dual-stream.html')
 
 if __name__ == "__main__":
-    # threaded=True es vital para despachar los dos videos al mismo tiempo
     app.run(host="0.0.0.0", port=8080, debug=False, threaded=True)
