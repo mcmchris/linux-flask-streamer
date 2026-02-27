@@ -90,11 +90,17 @@ class DualCameraStream:
                     clean_bytes = padded_2d[:, :valid_bytes_per_line].flatten()
                     bayer_2d = clean_bytes.reshape((height, width))
                     
-                # BYPASS LIGERO (Solo forma y Auto-Brillo)
-                small_bw = cv2.resize(bayer_2d, (640, 360))
-                # Auto-brillo extra por software
-                small_bw = cv2.normalize(small_bw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) 
-                final_img = cv2.cvtColor(small_bw, cv2.COLOR_GRAY2BGR)
+                # --- DECODIFICACIÓN DE COLOR (Demosaicing) ---
+                # Convertimos el patrón Bayer RGGB crudo a una imagen BGR a color
+                # SRGGB10 usa el formato RGGB, por lo que usamos COLOR_BayerRG2BGR
+                color_img = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerRG2BGR)
+                
+                # Redimensionamos la imagen YA a color
+                small_color = cv2.resize(color_img, (640, 360))
+                
+                # Auto-brillo digital (Aumenta el contraste y la luz por software)
+                # alpha es el contraste (1.0-3.0), beta es el brillo (0-100)
+                final_img = cv2.convertScaleAbs(small_color, alpha=2.5, beta=10)        
                 
             except Exception as e:
                 final_img = np.zeros((360, 640, 3), dtype=np.uint8)
