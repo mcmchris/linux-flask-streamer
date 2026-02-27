@@ -3,7 +3,7 @@ import cv2
 def test_raw_camera(node, name, width, height):
     print(f"\n--- Probando {name} en {node} (V4L2 Nativo) ---")
     
-    # 1. Abrimos conexión directa al kernel, sin GStreamer
+    # 1. Abrimos conexión directa al kernel
     cap = cv2.VideoCapture(node, cv2.CAP_V4L2)
     
     # 2. Forzamos formato RGGB (8-bit) para ahorrar RAM
@@ -11,8 +11,8 @@ def test_raw_camera(node, name, width, height):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     
-    # 3. CRÍTICO: Le decimos a OpenCV que NO intente procesar el color en hardware
-    cap.set(cv2.CAP_PROP_CONVERT_RGB, False)
+    # 3. CRÍTICO: 0 en lugar de False para que C++ lo entienda
+    cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
     ret, frame = cap.read()
     if ret:
