@@ -8,8 +8,8 @@ from flask import Flask, render_template, Response
 app = Flask(__name__, static_folder='templates/assets')
 
 CAMERAS = {
-    "imx708": r"/base/soc\@0/cci\@5c1b000/i2c-bus\@0/sensor\@1a",
-    "imx219": r"/base/soc\@0/cci\@5c1b000/i2c-bus\@1/sensor\@10"
+    "imx708": "/dev/video3",
+    "imx219": "/dev/video7"
 }
 
 class DualCameraStream:
@@ -18,10 +18,11 @@ class DualCameraStream:
         self.frames = {"cam0": None, "cam1": None}
         self.lock = threading.Lock()
 
-    def get_pipeline(self, camera_name):
+    def get_pipeline(self, device_node):
         return (
-            f'libcamerasrc camera-name="{camera_name}" ! '
-            'video/x-raw, width=1280, height=720, framerate=30/1 ! '
+            # v4l2src crudo leyendo el formato UYVY del ISP por hardware
+            f'v4l2src device={device_node} ! '
+            'video/x-raw, format=UYVY, width=1280, height=720, framerate=30/1 ! '
             'videoconvert ! video/x-raw, format=BGR ! '
             'appsink drop=true max-buffers=1'
         )
