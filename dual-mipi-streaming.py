@@ -64,10 +64,11 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-# INICIALIZACIÓN DE CÁMARAS EN MODO RAW
-# IMX708 en /dev/video0: Usa rggb10 (10-bit)
+# INICIALIZACIÓN DE CÁMARAS EN MODO RAW (RDI)
+# IMX708 ahora vive en el nodo RAW 0
 streamer.start_camera("cam0", "/dev/video0", "IMX708", "rggb10", 1536, 864)
-# IMX219 en /dev/video4: Usa rggb (8-bit)
+
+# IMX219 ahora vive en el nodo RAW 4
 streamer.start_camera("cam1", "/dev/video4", "IMX219", "rggb", 3280, 2464)
 
 def frame_generator(cam_id):
