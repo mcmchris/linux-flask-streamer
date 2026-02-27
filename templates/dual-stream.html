@@ -2,33 +2,51 @@
 <html lang="en">
 <head>
      <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
      <title>MCM Dual Dashboard</title>
      <style>
           body {
-               margin: 0; padding: 0; width: 100%; min-height: 100vh;
-               background-color: #1e1e1e; color: white;
-               text-align: center; font-family: sans-serif;
+               margin: 0;
+               padding: 0;
+               width: 100%;
+               min-height: 100vh;
+               background-color: #1e1e1e;
+               color: white;
+               text-align: center;
+               font-family: sans-serif;
           }
-          .dashboard {
-               margin-top: 20px;
+          .video-wrapper {
+               display: flex;
+               justify-content: center;
+               flex-wrap: wrap;
+               gap: 20px;
+               padding: 20px;
+          }
+          .cam-box {
+               background-color: #222;
                padding: 10px;
-               background-color: #333;
-               display: inline-block;
                border-radius: 8px;
                box-shadow: 0 4px 12px rgba(0,0,0,0.8);
           }
-          img { border-radius: 4px; max-width: 100%; height: auto; }
-          .labels { display: flex; justify-content: space-around; margin-bottom: 10px; color: #00ff00; font-weight: bold;}
+          img {
+               max-width: 100%;
+               height: auto;
+               border-radius: 4px;
+          }
+          h3 { margin-top: 0; color: #00ff00; }
      </style>
 </head>
 <body>
      <h1>Panel de Control Dual MIPI</h1>
-     <div class="dashboard">
-         <div class="labels">
-             <span>CAM0: IMX708</span>
-             <span>CAM1: IMX219</span>
+     <div class="video-wrapper">
+         <div class="cam-box">
+             <h3>IMX708 (Puerto 0)</h3>
+             <img src="{{ url_for('video_feed_cam0') }}" width="640" height="360">
          </div>
-         <img src="{{ url_for('video_feed') }}" width="1280" height="360">
+         <div class="cam-box">
+             <h3>IMX219 (Puerto 1)</h3>
+             <img src="{{ url_for('video_feed_cam1') }}" width="640" height="360">
+         </div>
      </div>
 </body>
 </html>
