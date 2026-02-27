@@ -132,6 +132,8 @@ class DualCameraStream:
                 prev_time = curr_time; frame_count = 0
 
             cv2.putText(final_img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            # Imprimir la resolución RAW real que llega del sensor
+            cv2.putText(final_img, f'RAW Input: {width} x {height}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
             ret_enc, buffer = cv2.imencode('.jpg', final_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
             
             if ret_enc:
