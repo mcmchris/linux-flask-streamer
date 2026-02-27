@@ -12,14 +12,16 @@ class DualCameraStream:
         self.frames = {"cam0": None, "cam1": None}
         self.lock = threading.Lock()
 
-    def get_pipeline(self, device_node, width, height):
-        # Leemos el hardware directamente, sin intermediarios
-        return (
-            f'v4l2src device={device_node} ! '
-            f'video/x-raw, format=UYVY, width={width}, height={height}, framerate=30/1 ! '
-            'videoconvert ! video/x-raw, format=BGR ! '
-            'appsink drop=true max-buffers=1'
-        )
+    def get_pipeline(self, device_node, sensor_w, sensor_h):
+            return (
+                f'v4l2src device={device_node} ! '
+                # Leemos el tamaño masivo que viene del hardware
+                f'video/x-raw, format=UYVY, width={sensor_w}, height={sensor_h} ! '
+                # Escalamiento súper rápido por hardware/C++ para no matar tu CPU
+                'videoscale ! video/x-raw, width=640, height=360 ! '
+                'videoconvert ! video/x-raw, format=BGR ! '
+                'appsink drop=true max-buffers=1'
+            )
 
     def start_camera(self, cam_id, device_node, label_name, width, height):
         print(f"[{label_name}] Conectando a {device_node}...")
