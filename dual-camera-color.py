@@ -9,20 +9,23 @@ from flask import Flask, render_template, Response, request, jsonify
 
 app = Flask(__name__, template_folder='templates')
 
-# --- CONFIGURACIÓN GLOBAL DE CÁMARAS ---
-# Aquí guardamos los estados en vivo de ambas cámaras
+# Tabla Gamma Precalculada (Súper rápida, no consume CPU en el loop)
+# Un valor gamma de 2.2 es el estándar sRGB para que se vea como en la Raspberry Pi
+invGamma = 1.0 / 2.2
+gamma_table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+
 camera_state = {
-    "cam0": { # IMX708
+    "cam0": { 
         'subdev': '/dev/v4l-subdev13',
-        'r_gain': 1.9, 'g_gain': 0.85, 'b_gain': 1.4,
-        'contrast': 1.2, 'brightness': 5,
+        'r_gain': 1.6, 'g_gain': 0.9, 'b_gain': 1.4,
+        'contrast': 1.1, 'brightness': 0,
         'exposure': 800, 'analogue_gain': 700
     },
-    "cam1": { # IMX219
+    "cam1": { 
         'subdev': '/dev/v4l-subdev12',
-        'r_gain': 1.9, 'g_gain': 0.85, 'b_gain': 1.4,
-        'contrast': 1.2, 'brightness': 5,
-        'exposure': 1600, 'analogue_gain': 150
+        'r_gain': 1.6, 'g_gain': 0.9, 'b_gain': 1.4,
+        'contrast': 1.1, 'brightness': 0,
+        'exposure': 800, 'analogue_gain': 200 # Bajamos exposure para mejorar FPS
     }
 }
 
@@ -32,7 +35,6 @@ class DualCameraStream:
         self.lock = threading.Lock()
 
     def fast_white_balance(self, img, r_gain, g_gain, b_gain):
-        # Matriz rápida para multiplicar los canales BGR sin usar split/merge
         matrix = np.array([
             [b_gain, 0., 0.],
             [0., g_gain, 0.],
@@ -41,7 +43,6 @@ class DualCameraStream:
         return cv2.transform(img, matrix)
 
     def apply_v4l2_hardware_settings(self, cam_id):
-        # Envía los comandos físicos de luz al hardware
         state = camera_state[cam_id]
         subdev = state['subdev']
         os.system(f"v4l2-ctl -d {subdev} --set-ctrl exposure={int(state['exposure'])}")
@@ -49,15 +50,15 @@ class DualCameraStream:
 
     def start_camera(self, cam_id, device_node, label_name, width, height, is_10bit):
         print(f"[{label_name}] Conectando a {device_node}...")
-        
-        # Aplicar luz inicial por hardware
         self.apply_v4l2_hardware_settings(cam_id)
 
         cap = cv2.VideoCapture(device_node, cv2.CAP_V4L2)
-        if is_10bit:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
-        else:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'RGGB'))
+        
+        # ELIMINAR LAG: Le decimos a OpenCV que solo guarde el frame más reciente
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        if is_10bit: cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'pRAA'))
+        else: cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'RGGB'))
             
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
@@ -73,6 +74,10 @@ class DualCameraStream:
         prev_time = time.time()
         frame_count = 0
         
+        # Calculamos la altura correcta manteniendo la relación de aspecto original del sensor
+        target_w = 640
+        target_h = int(target_w * (height / width))
+        
         while True:
             ret, img = cap.read()
             if not ret or img is None:
@@ -80,43 +85,44 @@ class DualCameraStream:
                 continue
 
             try:
-                # --- DECODIFICACIÓN RAW ---
                 raw_bytes = img.flatten()
-                total_bytes = len(raw_bytes)
-                stride = total_bytes // height
+                stride = len(raw_bytes) // height
                 
                 if is_10bit:
-                    valid_bytes_per_line = int(width * 1.25)
+                    valid_bytes = int(width * 1.25)
                     padded_2d = raw_bytes.reshape((height, stride))
-                    clean_bytes = padded_2d[:, :valid_bytes_per_line].flatten()
-                    blocks = clean_bytes.reshape(-1, 5)
-                    pixels_8bit = blocks[:, :4].flatten()
+                    clean_bytes = padded_2d[:, :valid_bytes].flatten()
+                    pixels_8bit = clean_bytes.reshape(-1, 5)[:, :4].flatten()
                     bayer_2d = pixels_8bit.reshape((height, width))
                 else:
-                    valid_bytes_per_line = width
-                    padded_2d = raw_bytes.reshape((height, stride))
-                    clean_bytes = padded_2d[:, :valid_bytes_per_line].flatten()
-                    bayer_2d = clean_bytes.reshape((height, width))
-                    
-                # --- DEMOSAICING A COLOR ---
-                color_img = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
-                small_color = cv2.resize(color_img, (640, 360))
+                    bayer_2d = raw_bytes.reshape((height, stride))[:, :width].flatten().reshape((height, width))
                 
-                # --- PROCESAMIENTO ISP POR SOFTWARE (Usando los valores web en vivo) ---
+                # ISP PASO 1: Nivel de Negro (Elimina la "neblina" gris)
+                # Restamos 16 (valor típico en sensores 10-bit leidos como 8-bit). cv2.subtract evita números negativos.
+                bayer_2d = cv2.subtract(bayer_2d, 16)
+
+                # ISP PASO 2: Demosaicing
+                color_img = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
+                
+                # Resize con la relación de aspecto CORRECTA
+                small_color = cv2.resize(color_img, (target_w, target_h))
+                
                 state = camera_state[cam_id]
                 
-                # 1. Balance de Blancos
+                # ISP PASO 3: Balance de Blancos
                 wb_img = self.fast_white_balance(small_color, state['r_gain'], state['g_gain'], state['b_gain'])
                 
-                # 2. Contraste y Brillo
-                final_img = cv2.convertScaleAbs(wb_img, alpha=state['contrast'], beta=state['brightness'])
+                # ISP PASO 4: Contraste y Brillo base
+                adjusted_img = cv2.convertScaleAbs(wb_img, alpha=state['contrast'], beta=state['brightness'])
+
+                # ISP PASO 5: Corrección Gamma (Look natural / Raspberry Pi)
+                final_img = cv2.LUT(adjusted_img, gamma_table)
                 
             except Exception as e:
                 final_img = np.zeros((360, 640, 3), dtype=np.uint8)
-                final_img[:] = (0, 0, 200) 
-                cv2.putText(final_img, f"ERROR: {str(e)[:40]}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(final_img, f"ERROR", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-            # --- FPS Y ENVÍO ---
+            # FPS
             frame_count += 1
             curr_time = time.time()
             elapsed = curr_time - prev_time
@@ -138,7 +144,6 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-# Iniciar cámaras con sus nodos físicos de memoria V4L2
 streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
 streamer.start_camera("cam1", "/dev/video4", "IMX219", 1640, 1232, True)
 
@@ -146,7 +151,7 @@ def frame_generator(cam_id):
     while True:
         frame = streamer.get_frame(cam_id)
         if frame is None:
-            time.sleep(0.05)
+            time.sleep(0.02)
             continue
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
@@ -157,34 +162,25 @@ def video_feed_cam0(): return Response(frame_generator("cam0"), mimetype='multip
 def video_feed_cam1(): return Response(frame_generator("cam1"), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/')
-def index(): 
-    return render_template('dual-color-changer.html')
+def index(): return render_template('dual-color-changer.html')
 
-# Endpoint para actualizar configuración desde la web
 @app.route('/update_settings', methods=['POST'])
 def update_settings():
     data = request.json
     cam_id = data.get('cam_id')
     
     if cam_id in camera_state:
-        # Actualizar variables de software
-        camera_state[cam_id]['r_gain'] = float(data.get('r_gain', camera_state[cam_id]['r_gain']))
-        camera_state[cam_id]['g_gain'] = float(data.get('g_gain', camera_state[cam_id]['g_gain']))
-        camera_state[cam_id]['b_gain'] = float(data.get('b_gain', camera_state[cam_id]['b_gain']))
-        camera_state[cam_id]['contrast'] = float(data.get('contrast', camera_state[cam_id]['contrast']))
+        for key in ['r_gain', 'g_gain', 'b_gain', 'contrast']:
+            camera_state[cam_id][key] = float(data.get(key, camera_state[cam_id][key]))
         camera_state[cam_id]['brightness'] = int(data.get('brightness', camera_state[cam_id]['brightness']))
         
-        # Comprobar si hay cambios de hardware (V4L2)
-        old_exp = camera_state[cam_id]['exposure']
-        old_gain = camera_state[cam_id]['analogue_gain']
-        
+        old_exp, old_gain = camera_state[cam_id]['exposure'], camera_state[cam_id]['analogue_gain']
         new_exp = float(data.get('exposure', old_exp))
         new_gain = float(data.get('analogue_gain', old_gain))
         
         if new_exp != old_exp or new_gain != old_gain:
             camera_state[cam_id]['exposure'] = new_exp
             camera_state[cam_id]['analogue_gain'] = new_gain
-            # Ejecutar comandos v4l2
             streamer.apply_v4l2_hardware_settings(cam_id)
             
     return jsonify(success=True)
