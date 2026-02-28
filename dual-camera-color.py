@@ -125,10 +125,10 @@ class DualCameraStream:
                 bayer_2d = cv2.subtract(bayer_2d, 16)
 
                 # ISP PASO 2: Demosaicing
-                color_img = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
+                #color_img = cv2.cvtColor(bayer_2d, cv2.COLOR_BayerBG2BGR)
                 
                 # Resize con la relación de aspecto CORRECTA
-                small_color = cv2.resize(color_img, (target_w, target_h))
+                small_color = cv2.resize(bayer_2d, (target_w, target_h))
                 
                 state = camera_state[cam_id]
                 
