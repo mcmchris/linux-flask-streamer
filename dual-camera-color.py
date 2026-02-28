@@ -17,17 +17,17 @@ gamma_table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 25
 camera_state = {
     "cam0": { 
         'subdev': '/dev/v4l-subdev13',
-        'r_gain': 1.6, 'g_gain': 0.9, 'b_gain': 1.4,
-        'contrast': 1.1, 'brightness': 0,
+        'r_gain': 2.5, 'g_gain': 1.65, 'b_gain': 2.9,
+        'contrast': 2.3, 'brightness': 5,
         'saturation': 1.2, # <--- NUEVO VALOR
-        'exposure': 800, 'analogue_gain': 700
+        'exposure': 870, 'analogue_gain': 780
     },
     "cam1": { 
         'subdev': '/dev/v4l-subdev12',
-        'r_gain': 1.6, 'g_gain': 0.9, 'b_gain': 1.4,
-        'contrast': 1.1, 'brightness': 0,
-        'saturation': 1.2, # <--- NUEVO VALOR
-        'exposure': 800, 'analogue_gain': 200 # Bajamos exposure para mejorar FPS
+        'r_gain': 2.5, 'g_gain': 2.0, 'b_gain': 2.65,
+        'contrast': 2.3, 'brightness': 5,
+        'saturation': 2.5, # <--- NUEVO VALOR
+        'exposure': 1700, 'analogue_gain': 232 # Bajamos exposure para mejorar FPS
     }
 }
 
