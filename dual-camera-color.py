@@ -131,9 +131,15 @@ class DualCameraStream:
                 small_color = cv2.resize(color_img, (target_w, target_h))
                 
                 state = camera_state[cam_id]
+
+                # --- NUEVO: ISP PASO 2.5: Denoising (Reducción de Ruido) ---
+                # Aplicamos un filtro bilateral rápido. 
+                # d=5 (tamaño del vecindario), sigmaColor=25, sigmaSpace=25 son valores ligeros 
+                # para limpiar el grano sin matar los FPS ni borrar detalles.
+                clean_color = cv2.bilateralFilter(small_color, d=5, sigmaColor=25, sigmaSpace=25)
                 
-                # ISP PASO 3: Balance de Blancos
-                wb_img = self.fast_white_balance(small_color, state['r_gain'], state['g_gain'], state['b_gain'])
+                # ISP PASO 3: Balance de Blancos (Ahora usamos clean_color)
+                wb_img = self.fast_white_balance(clean_color, state['r_gain'], state['g_gain'], state['b_gain'])
 
                 # ISP PASO 3.5: Matriz de Corrección de Color (Punch y Saturación)
                 ccm_img = self.apply_ccm(wb_img, state['saturation'])
@@ -159,7 +165,7 @@ class DualCameraStream:
 
             cv2.putText(final_img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             # Imprimir la resolución RAW real que llega del sensor
-            cv2.putText(final_img, f'RAW Input: {width} x {height}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+            #cv2.putText(final_img, f'RAW Input: {width} x {height}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
             ret_enc, buffer = cv2.imencode('.jpg', final_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
             
             if ret_enc:
