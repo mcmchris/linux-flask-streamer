@@ -98,7 +98,7 @@ class DualCameraStream:
         frame_count = 0
         
         # Calculamos la altura correcta manteniendo la relación de aspecto original del sensor
-        target_w = 640
+        target_w = 480
         target_h = int(target_w * (height / width))
         
         while True:
@@ -157,10 +157,17 @@ class DualCameraStream:
             if elapsed > 1.0:
                 prev_time = curr_time; frame_count = 0
 
-            cv2.putText(final_img, f'{label_name} | FPS: {fps:.1f}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            # Imprimir la resolución RAW real que llega del sensor
-            #cv2.putText(final_img, f'RAW Input: {width} x {height}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
-            ret_enc, buffer = cv2.imencode('.jpg', final_img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            # --- OVERLAY DE TEXTO PROFESIONAL ---
+            text_fps = f'{label_name} | FPS: {fps:.1f}'
+            text_raw = f'RAW Input: {width} x {height}'
+            
+            font = cv2.FONT_HERSHEY_DUPLEX
+            
+           
+            # 2. Dibujar el texto verde delgado (Grosor 1) encima del negro
+            cv2.putText(final_img, text_fps, (10, 35), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+            cv2.putText(final_img, text_raw, (10, 65), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+            ret_enc, buffer = cv2.imencode('.jpg', final_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
             
             if ret_enc:
                 with self.lock:
@@ -172,7 +179,7 @@ class DualCameraStream:
 
 streamer = DualCameraStream()
 
-streamer.start_camera("cam0", "/dev/video0", "IMX708", 1536, 864, True)
+streamer.start_camera("cam0", "/dev/video0", "IMX708", 2304, 1296, True)
 streamer.start_camera("cam1", "/dev/video4", "IMX219", 1640, 1232, True)
 
 def frame_generator(cam_id):
